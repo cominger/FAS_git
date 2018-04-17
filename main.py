@@ -14,7 +14,12 @@ import time
 import pickle
 from PIL import Image
 
-from model import FASNET
+# from model import FASNET
+# from model_margin_nmc_freez_mean import FASNET
+# from model_mse_cross_entropy import FASNET
+# from model_fc_with_margin_gt_vs_nmc import FASNET
+# from model_fc_with_margin import FASNET
+from model_margin_nmc import FASNET
 from utils import utils
 
 def show_images(epoch_n,class_n,images,RGB=True):
@@ -50,7 +55,7 @@ def main():
 	# Initialize CNN
 	# K = 53000 # total number of exemplars
 	K = 500
-	FAS = FASNET(2048, num_classes)
+	FAS = FASNET(batch_size, 2048, num_classes)
 	epoch_n=0;
 	s=0;
 	FAS.cuda()
@@ -73,6 +78,10 @@ def main():
 
 	    # Update representation via BackProp
 	    FAS.update_representation(train_set,transform_input)
+	    # if epoch_n==0:
+	    	# FAS.update_representation(train_set,transform_input,True)
+	    # else:
+	    	# FAS.update_representation(train_set,transform_input,False)
 	    m = int(K / FAS.n_classes)
 
 	    # Construct exemplar sets for new classes
@@ -101,7 +110,15 @@ def main():
 	    	pickle.dump(FAS.exemplar_means, file)
 	    save_model_accracy="result"+"/"+str(epoch_n)+"/score.txt";
 	    file_score = open(save_model_accracy,"w")
+	    # save_model=copy.deepcopy(FAS);
+	    # with open(save_path,"wb") as file:
+	    # 	pickle.dump(save_model, file)
 
+	    # FAS.load_state_dict(torch.load(save_path))
+	    # FAS.n_known = FAS.n_classes
+	    # print ("FAS classes: %d" % FAS.n_known)
+		# with open(save_path,'rb') as file:
+	 #    	adef = pickle.load(save_model, file)
 	    total = 0.0
 	    correct = 0.0
 	    nmc_correct = 0.0
@@ -113,14 +130,14 @@ def main():
 	        total += labels.size(0)
 	        correct += (preds.data.cpu() == labels).sum()
 
-	        preds = FAS.soft_classify(images, transform_input)
-	        nmc_total += labels.size(0)
-	        nmc_correct += (preds.data.cpu() == labels).sum()
+	        # preds = FAS.soft_classify(images, transform_input)
+	        # nmc_total += labels.size(0)
+	        # nmc_correct += (preds.data.cpu() == labels).sum()
 
 	    print('Sample Train Accuracy: %d %%' % (100 * correct / total))
-	    print('soft Train Accuracy: %d %%' % (100 * nmc_correct / nmc_total))
+	    # print('soft Train Accuracy: %d %%' % (100 * nmc_correct / nmc_total))
 	    file_score.write('Sample Train Accuracy: %d %% \n' % (100 * correct / total))
-	    file_score.write('soft_Train Accuracy: %d %% \n' % (100 * nmc_correct / nmc_total))
+	    # file_score.write('soft_Train Accuracy: %d %% \n' % (100 * nmc_correct / nmc_total))
 
 	    total = 0.0
 	    correct = 0.0
@@ -133,15 +150,15 @@ def main():
 	        total += labels.size(0)
 	        correct += (preds.data.cpu() == labels).sum()
 
-	        preds = FAS.soft_classify(images, transform_input)
-	        nmc_total += labels.size(0)
-	        nmc_correct += (preds.data.cpu() == labels).sum()
+	        # preds = FAS.soft_classify(images, transform_input)
+	        # nmc_total += labels.size(0)
+	        # nmc_correct += (preds.data.cpu() == labels).sum()
 
 	    print('Sample Test Accuracy: %d %%' % (100 * correct / total))	    
-	    print('soft Test Accuracy: %d %%' % (100 * nmc_correct / nmc_total))	    
+	    # print('soft Test Accuracy: %d %%' % (100 * nmc_correct / nmc_total))	    
 
 	    file_score.write('Sample Test Accuracy: %d %% \n' % (100 * correct / total))
-	    file_score.write('soft_Test Accuracy: %d %% \n' % (100 * nmc_correct / nmc_total))
+	    # file_score.write('soft_Test Accuracy: %d %% \n' % (100 * nmc_correct / nmc_total))
 	    file_score.close()
 
 if __name__ == '__main__':
