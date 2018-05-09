@@ -1,165 +1,120 @@
-import pdb
+'''Train CIFAR10 with PyTorch.'''
+from __future__ import print_function
+
 import torch
 import torch.nn as nn
-import torchvision.models as models
-import torchvision.transforms as transforms
-from torch.autograd import Variable
 import torch.optim as optim
 import torch.nn.functional as F
-import numpy as np
-from data_loader import numpy_2_dataset
+import torch.backends.cudnn as cudnn
+from torch.optim.lr_scheduler import MultiStepLR
+
+import torchvision
+import torchvision.transforms as transforms
 
 import os
-import time
-import pickle
-from PIL import Image
+import argparse
 
-# from model import FASNET
-# from model_margin_nmc_freez_mean import FASNET
-# from model_mse_cross_entropy import FASNET
-# from model_fc_with_margin_gt_vs_nmc import FASNET
-# from model_fc_with_margin import FASNET
-from model_margin_nmc import FASNET
-from utils import utils
+from models.dnc_FAS import *
+from utils import progress_bar, run
+from torch.autograd import Variable
 
-def show_images(epoch_n,class_n,images,RGB=True):
-    output_dir="result";
-    if not os.path.exists(output_dir):
-    	os.mkdir(output_dir)
+import pdb
 
-    epoch_dir=output_dir+"/"+str(epoch_n);
-    if not os.path.exists(epoch_dir):
-    	os.mkdir(epoch_dir)
-
-    class_dir=epoch_dir+"/"+str(class_n);
-    if not os.path.exists(class_dir):
-    	os.mkdir(class_dir)
-
-    for i, img in enumerate(images):
-    	if RGB:
-    		im = Image.fromarray(img)
-    	else:
-    		im = Image.fromarray(img[:,:,0])
-    	png_name=class_dir+"/"+str(i)+'.png'
-    	im.save(png_name)
-        # plt.imshow(img)
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
+parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
+parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
+args = parser.parse_args()
+filename = 'CIFAR10_ncm_deep_rest34'
 
 def main():
-	# pdb.set_trace();
+    model={}
+    data_set={}
+    use_cuda = torch.cuda.is_available()
+    start_epoch = 0  # start from epoch 0 or last checkpoint epoch
+    end_epoch = 300
+    lr_step = [150, 250]
 
-	# Hyper Parameters
-	total_classes = 10
-	num_classes = 10
-	batch_size = 600
+    # Data
+    print('==> Preparing data..')
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)),
+    ])
 
-	# Initialize CNN
-	# K = 53000 # total number of exemplars
-	K = 500
-	FAS = FASNET(batch_size, 2048, num_classes)
-	epoch_n=0;
-	s=0;
-	FAS.cuda()
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)),
+    ])
 
-	# Load Datasets
-	print ("Loading training examples for classes", range(s, s+num_classes));
-	data_handler=utils("cifar10")
-	# data_handler=utils("mix_mnist")
-	train_set, test_set = data_handler.train_set, data_handler.test_set
-	transform_input = data_handler.test_transform
-	RGB=data_handler.RGB
+    t_batch_size=600
 
-	for epoch_n in range(30):
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=1)
 
-	    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size,
-	                                               shuffle=True, num_workers=2)
+    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=t_batch_size, shuffle=False, num_workers=1)
 
-	    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size,
-	                                               shuffle=True, num_workers=2)
+    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-	    # Update representation via BackProp
-	    FAS.update_representation(train_set,transform_input)
-	    # if epoch_n==0:
-	    	# FAS.update_representation(train_set,transform_input,True)
-	    # else:
-	    	# FAS.update_representation(train_set,transform_input,False)
-	    m = int(K / FAS.n_classes)
+    data_set['trainset']    = trainset
+    data_set['trainloader'] = trainloader
+    data_set['testset']     = testset
+    data_set['testloader']  = testloader
+    data_set['filename']    = filename
 
-	    # Construct exemplar sets for new classes
-	    print("current exemplar number : %d" %(len(FAS.exemplar_sets)))
-	    FAS.exemplar_sets=[];
-	    for y in range(FAS.n_known, FAS.n_classes):
-	        print ("Constructing exemplar set for class-%d..." %(y))
-	        #Batch
-	        images = train_set.get_image_class(y)
-	        images_label = np.ones((images.shape[0])) * y
-	        dl_images = numpy_2_dataset(images, images_label, transform_input)
-	        FAS.construct_exemplar_set(dl_images, images, m, transform_input)
-	        print ("Done")
+    # Model
+    global net
+    if args.resume:
+        # Load checkpoint.
+        print('==> Resuming from checkpoint..')
+        assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+        checkpoint = torch.load('./checkpoint/ckpt.t7')
+        net = checkpoint['net']
+        best_acc = checkpoint['acc']
+        start_epoch = checkpoint['epoch']
+    else:
+        print('==> Building model..')
+        # net = VGG('VGG19')
+        net = ResNet34_DNC()
+        # net = ResNet18_DNC()
+        # net = PreActResNet18()
+        # net = GoogLeNet()
+        # net = DenseNet121()
+        # net = ResNeXt29_2x64d()
+        # net = MobileNet()
+        # net = MobileNetV2()
+        # net = DPN92()
+        # net = ShuffleNetG2()
+        # net = SENet18()
 
-	    for y, P_y in enumerate(FAS.exemplar_sets):
-	        print ("Exemplar set for class-%d:" % (y), P_y.shape)
-	        show_images(epoch_n,y,P_y,RGB) # RGB
+    if use_cuda:
+        net.cuda()
+        #net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
+        cudnn.benchmark = True
 
-	    #Save and load model
-	    save_model_path="result"+"/"+str(epoch_n)+"/model.pkl";
-	    torch.save(FAS.state_dict(),save_model_path)
-	    save_exemplar_path="result"+"/"+str(epoch_n)+"/exemplar.pkl";
-	    with open(save_exemplar_path,"wb") as file:
-	    	pickle.dump(FAS.n_classes, file)
-	    	pickle.dump(FAS.exemplar_sets, file)
-	    	pickle.dump(FAS.exemplar_means, file)
-	    save_model_accracy="result"+"/"+str(epoch_n)+"/score.txt";
-	    file_score = open(save_model_accracy,"w")
-	    # save_model=copy.deepcopy(FAS);
-	    # with open(save_path,"wb") as file:
-	    # 	pickle.dump(save_model, file)
+    criterion = nn.CrossEntropyLoss()
+    # criterion = nn.MultiLabelMarginLoss()
+    # optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=5e-4)
+    scheduler = MultiStepLR(optimizer, milestones=lr_step, gamma=0.1)
+    
 
-	    # FAS.load_state_dict(torch.load(save_path))
-	    # FAS.n_known = FAS.n_classes
-	    # print ("FAS classes: %d" % FAS.n_known)
-		# with open(save_path,'rb') as file:
-	 #    	adef = pickle.load(save_model, file)
-	    total = 0.0
-	    correct = 0.0
-	    nmc_correct = 0.0
-	    nmc_total = 0.0
-	    for indices, images, labels in train_loader:
-	        images = Variable(images).cuda()
-	        preds = FAS.classify(images, transform_input)
-	        labels = labels.long()              #addes for tensor type
-	        total += labels.size(0)
-	        correct += (preds.data.cpu() == labels).sum()
+    # pdb.set_trace()
+    model['use_cuda']  = use_cuda
+    model['net']       = net
+    model['criterion'] = criterion
+    model['optimizer'] = optimizer
+    model['scheduler'] = scheduler
 
-	        # preds = FAS.soft_classify(images, transform_input)
-	        # nmc_total += labels.size(0)
-	        # nmc_correct += (preds.data.cpu() == labels).sum()
-
-	    print('Sample Train Accuracy: %d %%' % (100 * correct / total))
-	    # print('soft Train Accuracy: %d %%' % (100 * nmc_correct / nmc_total))
-	    file_score.write('Sample Train Accuracy: %d %% \n' % (100 * correct / total))
-	    # file_score.write('soft_Train Accuracy: %d %% \n' % (100 * nmc_correct / nmc_total))
-
-	    total = 0.0
-	    correct = 0.0
-	    nmc_correct = 0.0
-	    nmc_total = 0.0
-	    for indices, images, labels in test_loader:
-	        images = Variable(images).cuda()
-	        preds = FAS.classify(images, transform_input)
-	        labels = labels.long()              #addes for tensor type
-	        total += labels.size(0)
-	        correct += (preds.data.cpu() == labels).sum()
-
-	        # preds = FAS.soft_classify(images, transform_input)
-	        # nmc_total += labels.size(0)
-	        # nmc_correct += (preds.data.cpu() == labels).sum()
-
-	    print('Sample Test Accuracy: %d %%' % (100 * correct / total))	    
-	    # print('soft Test Accuracy: %d %%' % (100 * nmc_correct / nmc_total))	    
-
-	    file_score.write('Sample Test Accuracy: %d %% \n' % (100 * correct / total))
-	    # file_score.write('soft_Test Accuracy: %d %% \n' % (100 * nmc_correct / nmc_total))
-	    file_score.close()
-
+    for epoch in range(start_epoch, end_epoch):
+        # pdb.set_trace()
+        # test(epoch)
+        # train(model, epoch)
+        # scheduler.step()
+        # test(net, epoch)
+        run(data_set,model, epoch)
+    
 if __name__ == '__main__':
-	main()
+    main()
