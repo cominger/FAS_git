@@ -2,3 +2,10 @@ progress
 checkpoint
 data
 __pycache__
+clothing/clean_train_kv.txt
+clothing/__init__.py
+clothing/clean_test_kv.txt
+clothing/clean_val_kv.txt
+clothing/example.py
+clothing/make_kv.py
+clothing/noisy_train_kv.txt
