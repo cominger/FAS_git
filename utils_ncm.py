@@ -24,6 +24,7 @@ import torch.backends.cudnn as cudnn
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.autograd import Variable
 
+import numpy as np
 import torchvision
 import torchvision.transforms as transforms
 
@@ -187,8 +188,8 @@ def train(data, model, epoch):
         correct += predicted.eq(targets.data).cpu().sum()
 
         progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-    train_acc = 100.*correct/total
+            % (train_loss/(batch_idx+1), 100.*float(correct)/float(total), correct, total))
+    train_acc = 100.*float(correct)/float(total)
 
 
 def test(data, model, epoch):
@@ -208,26 +209,29 @@ def test(data, model, epoch):
     for batch_idx, (inputs, targets) in enumerate(testloader):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-        outputs = net(inputs)
+
+        # inputs, targets = Variable(inputs, volatile=True), Variable(targets)
+        with torch.no_grad():
+            inputs, targets = Variable(inputs), Variable(targets)
+            outputs = net(inputs)
 
 
-        targets_cpu = targets.data.cpu()
-        targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-        targets = Variable(targets_cpu).cuda()
+            targets_cpu = targets.data.cpu()
+            targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
+            targets = Variable(targets_cpu).cuda()
 
-        loss = criterion(outputs, targets)
+            loss = criterion(outputs, targets)
 
-        test_loss += loss.data[0]
-        _, predicted = torch.max(outputs.data, 1)
-        total += targets.size(0)
-        correct += predicted.eq(targets.data).cpu().sum()
+            test_loss += loss.data[0]
+            _, predicted = torch.max(outputs.data, 1)
+            total += targets.size(0)
+            correct += predicted.eq(targets.data).cpu().sum()
 
-        progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                % (test_loss/(batch_idx+1), 100.*float(correct)/float(total), correct, total))
 
     # Save checkpoint.
-    acc = 100.*correct/total
+    acc = 100.*float(correct)/float(total)
     if acc > best_acc:
         print('Saving..')
         state = {
@@ -261,8 +265,58 @@ def test(data, model, epoch):
 ##        File.write('Test Accuracy: %.3f %% \n' % (acc))
 ##        File.close()
 
-def run(data,model,epoch):
+def mean_alignment(data, model, epoch):
+    global best_acc
+    use_cuda  = model['use_cuda'] 
+    net       = model['net']
+    optimizer = model['optimizer']
+    criterion = model['criterion']
+
+    testloader = data['trainloader']
+    filename   = data['filename']
+
+    net.eval()
+    
+    if condenstation_mean:
+        net.condenstation_mean()
+        print("apply mean condenstation")
+
+    for batch_idx, (inputs, targets) in enumerate(testloader):
+        if use_cuda:
+            inputs, targets = inputs.cuda(), targets.cuda()
+        # inputs, targets = Variable(inputs, volatile=True), Variable(targets)
+        with torch.no_grad():
+            inputs, targets = Variable(inputs), Variable(targets)
+            outputs = net.get_feature(inputs)
+
+            targets_cpu = targets.data.cpu()
+            targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
+
+            np_y = targets_cpu.numpy()
+
+            for label in np.unique(np_y):
+
+                indicies = np.where(np_y==label)
+                count = len(indicies)
+
+                i = net.label.index(label)
+                if count > 0:
+                    net.count_vector[i] += count
+                    feature_mean = torch.mean(outputs[indicies], dim=0).data.cpu()
+                    net.mean_vector[i] =  (net.count_vector[i]/(net.count_vector[i]+1)) * net.mean_vector[i] \
+                    + (1/(net.count_vector[i]+1)) *  feature_mean
+            
+            progress_bar(batch_idx, len(testloader))
+
+
+def run(data,model,epoch, alignment = True):
     train(data,model,epoch)
+    torch.cuda.empty_cache()
+    if alignment:
+        print("Non-alignment")
+        test(data,model,epoch)
+        torch.cuda.empty_cache()
+        mean_alignment(data,model,epoch)
     model['scheduler'].step()
     test(data,model,epoch)
 

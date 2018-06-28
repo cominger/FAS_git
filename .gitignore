@@ -9,3 +9,4 @@ clothing/clean_val_kv.txt
 clothing/example.py
 clothing/make_kv.py
 clothing/noisy_train_kv.txt
+progress_plot
