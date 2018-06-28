@@ -27,8 +27,6 @@ from torch.autograd import Variable
 import torchvision
 import torchvision.transforms as transforms
 
-from models.dnc_FAS import *
-
 def get_mean_and_std(dataset):
     '''Compute the mean and std value of dataset.'''
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
@@ -147,7 +145,7 @@ global best_acc  # best test accuracy
 best_acc = 0
 global train_acc
 train_acc = 0
-condenstation_mean = True
+condenstation_mean = False
 
 # Training
 def train(data, model, epoch):
@@ -163,7 +161,7 @@ def train(data, model, epoch):
         net.condenstation_mean()
         print("apply mean condenstation")
 
-    print('\nEpoch: %d' % epoch)
+    print('\nEpoch: %d\n' % epoch)
     net.train()
     train_loss = 0
     correct = 0
@@ -234,7 +232,6 @@ def test(data, model, epoch):
         print('Saving..')
         state = {
             'net': net.modules if use_cuda else net,
-            'mean_vector' : net.mean_vector,
             'label_list' : net.label,
             'acc': acc,
             'epoch': epoch,
@@ -262,6 +259,12 @@ def test(data, model, epoch):
         File.write('Train Accuracy: %.3f %% \n' % (train_acc))
         File.write('Test Accuracy: %.3f %% \n' % (acc))
         File.close()
+
+def run(data, model, epoch):
+    train(data,model, epoch)
+    model['scheduler'].step()
+    test(data,model, epoch)
+
 
 def run_clothing(data,model,epoch):
     trainset  = data['trainset']
@@ -326,6 +329,7 @@ def noisy_sort(data,model,epoch,sample_count):
     total = 0
     remove_list_score=[]
     remove_list_index=[]
+
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         # print(batch_idx)
         if use_cuda:

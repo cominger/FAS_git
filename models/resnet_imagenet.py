@@ -9,8 +9,8 @@ import math
 import torch.utils.model_zoo as model_zoo
 
 
-#__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
-#            'resnet152']
+__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
+           'resnet152']
 
 
 model_urls = {
@@ -70,8 +70,8 @@ class Bottleneck(nn.Module):
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
                                padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -114,18 +114,18 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+
         self.mean_vector = torch.zeros(1, self.inplanes)
         self.count_vector = torch.ones(1, 1)
         self.label = []
-        
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
@@ -144,11 +144,6 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def condenstation_mean(self):
-        self.mean_vector = torch.zeros_like(self.mean_vector)
-        self.count_vector = torch.ones_like(self.count_vector)
-        #self.label = []
-
     def update_buffer(self, x, y):
         np_y = y.data.cpu().numpy()
 
@@ -156,20 +151,8 @@ class ResNet(nn.Module):
 
             if label not in self.label:
                 self.label.append(label)
-                if len(self.label) != 1:
-                    self.mean_vector = torch.cat((self.mean_vector, torch.zeros(1, self.inplanes)))
-                    self.count_vector = torch.cat((self.count_vector, torch.ones(1, 1)))
 
-            indicies = np.where(np_y==label)
-            count = len(indicies)
 
-            i = self.label.index(label)
-            if count > 0:
-                self.count_vector[i] += count
-                feature_mean = torch.mean(x[indicies], dim=0).data.cpu()
-                self.mean_vector[i] =  (self.count_vector[i]/(self.count_vector[i]+1)) * self.mean_vector[i] \
-                + (1/(self.count_vector[i]+1)) *  feature_mean
-    
     def forward(self, x, y=None):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -180,26 +163,16 @@ class ResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        
+
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
+        x = self.fc(x)
 
-        out = x
+        out=x
         if y is not None:
             self.update_buffer(out, y)
 
-
-        if torch.cuda.is_available():
-            mean_tensor = self.mean_vector.cuda()
-        else:
-            mean_tensor = self.mean_vector  # (num_classes, 512)
-
-        out = out.unsqueeze(1) # (batch, 1, 512)
-        x_t_sub_mean = out - Variable(mean_tensor) # (batch, num_classes, 512)
-        x_t_sub_mean_squ = x_t_sub_mean.pow(2) # (batch, num_classes, 512)
-        d_w_xy = -0.5 * torch.sum(x_t_sub_mean_squ, dim=2) # (batch, num_classes)
-
-        return d_w_xy
+        return x
 
     def get_feature(self, x):
         
@@ -219,82 +192,56 @@ class ResNet(nn.Module):
         return x
 
 
-def resnet18_dnc_imagenet(pretrained=False, **kwargs):
+def resnet18(pretrained=False, **kwargs):
     """Constructs a ResNet-18 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
     if pretrained:
-        pretrained_dict = model_zoo.load_url(model_urls['resnet18'])
-        model_dict = model.state_dict()
-
-        pretrained_dict = {k: v for k ,v in pretrained_dict.items() if k in model_dict}
-        model_dict.update(pretrained_dict)
-        model.load_state_dict(model_dict)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
     return model
 
 
-def resnet34_dnc_imagenet(pretrained=False, **kwargs):
+def resnet34(pretrained=False, **kwargs):
     """Constructs a ResNet-34 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
     if pretrained:
-        pretrained_dict = model_zoo.load_url(model_urls['resnet34'])
-        model_dict = model.state_dict()
-
-        pretrained_dict = {k: v for k ,v in pretrained_dict.items() if k in model_dict}
-        model_dict.update(pretrained_dict)
-        model.load_state_dict(model_dict)
-
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet34']))
     return model
 
 
-def resnet50_dnc_imagenet(pretrained=False, **kwargs):
+def resnet50(pretrained=False, **kwargs):
     """Constructs a ResNet-50 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
-        pretrained_dict = model_zoo.load_url(model_urls['resnet50'])
-        model_dict = model.state_dict()
-
-        pretrained_dict = {k: v for k ,v in pretrained_dict.items() if k in model_dict}
-        model_dict.update(pretrained_dict)
-        model.load_state_dict(model_dict)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
     return model
 
 
-def resnet101_dnc_imagenet(pretrained=False, **kwargs):
+def resnet101(pretrained=False, **kwargs):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
     if pretrained:
-        pretrained_dict = model_zoo.load_url(model_urls['resnet101'])
-        model_dict = model.state_dict()
-
-        pretrained_dict = {k: v for k ,v in pretrained_dict.items() if k in model_dict}
-        model_dict.update(pretrained_dict)
-        model.load_state_dict(model_dict)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
     return model
 
 
-def resnet152_dnc_imagenet(pretrained=False, **kwargs):
+def resnet152(pretrained=False, **kwargs):
     """Constructs a ResNet-152 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
     if pretrained:
-        pretrained_dict = model_zoo.load_url(model_urls['resnet152'])
-        model_dict = model.state_dict()
-
-        pretrained_dict = {k: v for k ,v in pretrained_dict.items() if k in model_dict}
-        model_dict.update(pretrained_dict)
-        model.load_state_dict(model_dict)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
     return model
