@@ -59,6 +59,13 @@ class Clothing1M(data.Dataset):
     def __len__(self):
         return len(self.images)
 
+    def class_num(self):
+        label_list=[]
+        for index in range(len(self.images)):
+            label_list.append(self.labels[index])
+        label_list = np.unique(np.array(label_list))
+        return len(label_list)
+
     def append(self, other):
         self.images+=other.images
         self.labels+=other.labels

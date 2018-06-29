@@ -159,7 +159,7 @@ def train(data, model, epoch):
     trainloader = data['trainloader']
 
     if condenstation_mean:
-        net.condenstation_mean()
+        net.module.condenstation_mean()
         print("apply mean condenstation")
 
     print('\nEpoch: %d' % epoch)
@@ -171,12 +171,7 @@ def train(data, model, epoch):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
         optimizer.zero_grad()
-        inputs, targets = Variable(inputs), Variable(targets)
         outputs = net(inputs, targets)
-
-        targets_cpu = targets.data.cpu()
-        targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-        targets = Variable(targets_cpu).cuda()#non margin
 
         loss = criterion(outputs, targets)
         loss.backward()
@@ -210,16 +205,8 @@ def test(data, model, epoch):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
 
-        # inputs, targets = Variable(inputs, volatile=True), Variable(targets)
         with torch.no_grad():
-            inputs, targets = Variable(inputs), Variable(targets)
             outputs = net(inputs)
-
-
-            targets_cpu = targets.data.cpu()
-            targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-            targets = Variable(targets_cpu).cuda()
-
             loss = criterion(outputs, targets)
 
             test_loss += loss.data[0]
@@ -235,9 +222,9 @@ def test(data, model, epoch):
     if acc > best_acc:
         print('Saving..')
         state = {
-            'net': net.modules if use_cuda else net,
-            'mean_vector' : net.mean_vector,
-            'label_list' : net.label,
+            'net': net.state_dict() if use_cuda else net,
+            'mean_vector' : net.module.mean_vector,
+            'label_list' : net.module.label,
             'acc': acc,
             'epoch': epoch,
         }
@@ -253,17 +240,6 @@ def test(data, model, epoch):
         File.write('Train Accuracy: %.3f %% \n' % (train_acc))
         File.write('Test Accuracy: %.3f %% \n' % (best_acc))
         File.close()
-##    else:
-##        print('Saving..')
-##        if not os.path.isdir('progress'):
-##            os.mkdir('progress')
-##        filedir = './progress/'
-##        acc_file = filedir + filename+'_score.txt'
-##        File = open(acc_file,"w")
-##        File.write('Epoch: %d \n' % (epoch))
-##        File.write('Train Accuracy: %.3f %% \n' % (train_acc))
-##        File.write('Test Accuracy: %.3f %% \n' % (acc))
-##        File.close()
 
 def mean_alignment(data, model, epoch):
     global best_acc
@@ -278,7 +254,7 @@ def mean_alignment(data, model, epoch):
     net.eval()
     
     if condenstation_mean:
-        net.condenstation_mean()
+        net.moudle.condenstation_mean()
         print("apply mean condenstation")
 
     for batch_idx, (inputs, targets) in enumerate(testloader):
@@ -286,26 +262,8 @@ def mean_alignment(data, model, epoch):
             inputs, targets = inputs.cuda(), targets.cuda()
         # inputs, targets = Variable(inputs, volatile=True), Variable(targets)
         with torch.no_grad():
-            inputs, targets = Variable(inputs), Variable(targets)
-            outputs = net.get_feature(inputs)
-
-            targets_cpu = targets.data.cpu()
-            targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-
-            np_y = targets_cpu.numpy()
-
-            for label in np.unique(np_y):
-
-                indicies = np.where(np_y==label)
-                count = len(indicies)
-
-                i = net.label.index(label)
-                if count > 0:
-                    net.count_vector[i] += count
-                    feature_mean = torch.mean(outputs[indicies], dim=0).data.cpu()
-                    net.mean_vector[i] =  (net.count_vector[i]/(net.count_vector[i]+1)) * net.mean_vector[i] \
-                    + (1/(net.count_vector[i]+1)) *  feature_mean
-            
+            # outputs = net.get_feature(inputs)
+            outputs = net(inputs, targets)            
             progress_bar(batch_idx, len(testloader))
 
 
@@ -313,12 +271,17 @@ def run(data,model,epoch, alignment = True):
     train(data,model,epoch)
     torch.cuda.empty_cache()
     if alignment:
+
         print("Non-alignment")
         test(data,model,epoch)
         torch.cuda.empty_cache()
+
         mean_alignment(data,model,epoch)
+        torch.cuda.empty_cache()
+
     model['scheduler'].step()
     test(data,model,epoch)
+    torch.cuda.empty_cache()
 
 def run_clothing(data,model,epoch):
     trainset  = data['trainset']

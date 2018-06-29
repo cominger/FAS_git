@@ -45,7 +45,7 @@ def main():
     global train_acc
     train_acc = 0
     condenstation_mean = True
-    t_batch_size=80 #limit 100
+    t_batch_size=60 #limit 100
 
     # pdb.set_trace()
     #prepare data
@@ -97,7 +97,7 @@ def main():
     else:
         print('==> Building model..')
         # net = VGG('VGG19')
-        net = resnet50_dnc_imagenet(pretrained= True) #NMC
+        net = resnet50_dnc_imagenet(pretrained= True, num_classes=trainset.class_num()) #NMC
         # net = resnet50(pretrained= True)
         # net = ResNet18_DNC()
         # net = PreActResNet18()
@@ -111,8 +111,8 @@ def main():
         # net = SENet18()
 
     if use_cuda:
+        net = torch.nn.DataParallel(net, device_ids=[0])
         net.cuda()
-        #net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
         cudnn.benchmark = True
 
     criterion = nn.CrossEntropyLoss()
