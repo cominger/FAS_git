@@ -155,6 +155,7 @@ def train(data, model, epoch):
     net       = model['net']
     optimizer = model['optimizer']
     criterion = model['criterion']
+    device    = model['device']
 
     trainloader = data['trainloader']
 
@@ -163,13 +164,12 @@ def train(data, model, epoch):
         print("apply mean condenstation")
 
     print('\nEpoch: %d' % epoch)
-    net.train()
     train_loss = 0
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
+        inputs, targets = inputs.to(device), targets.to(device)
+
         optimizer.zero_grad()
         outputs = net(inputs, targets)
 
@@ -177,7 +177,7 @@ def train(data, model, epoch):
         loss.backward()
         optimizer.step()        
 
-        train_loss += loss.data[0]
+        train_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)#cross
         total += targets.size(0)
         correct += predicted.eq(targets.data).cpu().sum()
@@ -193,6 +193,7 @@ def test(data, model, epoch):
     net       = model['net']
     optimizer = model['optimizer']
     criterion = model['criterion']
+    device    = model['device']
 
     testloader = data['testloader']
     filename   = data['filename']
@@ -201,15 +202,14 @@ def test(data, model, epoch):
     test_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, targets) in enumerate(testloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(testloader):
+            inputs, targets = inputs.to(device), targets.to(device)
 
-        with torch.no_grad():
             outputs = net(inputs)
             loss = criterion(outputs, targets)
 
-            test_loss += loss.data[0]
+            test_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
             total += targets.size(0)
             correct += predicted.eq(targets.data).cpu().sum()
@@ -247,22 +247,19 @@ def mean_alignment(data, model, epoch):
     net       = model['net']
     optimizer = model['optimizer']
     criterion = model['criterion']
+    device    = model['device']
 
     testloader = data['trainloader']
     filename   = data['filename']
-
-    net.eval()
     
     if condenstation_mean:
-        net.moudle.condenstation_mean()
+        net.module.condenstation_mean(flag=True)
         print("apply mean condenstation")
 
-    for batch_idx, (inputs, targets) in enumerate(testloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
-        # inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-        with torch.no_grad():
-            # outputs = net.get_feature(inputs)
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(testloader):
+            inputs, targets = inputs.to(device), targets.to(device)
+                # outputs = net.get_feature(inputs)
             outputs = net(inputs, targets)            
             progress_bar(batch_idx, len(testloader))
 

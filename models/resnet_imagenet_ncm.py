@@ -115,11 +115,15 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         
-        self.mean_vector = torch.zeros(num_classes, self.inplanes)
-        self.count_vector = torch.ones(num_classes)
-        if torch.cuda.is_available():
-            self.mean_vector = self.mean_vector.cuda()
-            self.count_vector = self.count_vector.cuda()
+        self.register_buffer('mean_vector', torch.zeros(num_classes, self.inplanes))
+        self.register_buffer('count_vector', torch.ones(num_classes))
+        
+        # self.mean_vector = torch.zeros(num_classes, self.inplanes)
+        # self.count_vector = torch.ones(num_classes)
+
+        # if torch.cuda.is_available():
+        #     self.mean_vector = self.mean_vector.cuda()
+        #     self.count_vector = self.count_vector.cuda()
         self.label = range(num_classes)
         self.label_name =[]
         
@@ -155,21 +159,30 @@ class ResNet(nn.Module):
         #self.label = []
 
     def update_buffer(self, x, y):
-        np_y = y.data.cpu().numpy()
-
-        for label in np.unique(np_y):
+        # np_y = y.data.cpu().numpy()
+        false_y = torch.zeros_like(y)
+        true_y = torch.ones_like(y)
+        for label in self.label:
             # print label
-            indicies = np.where(np_y==label)[0]
+            # indicies = np.where(np_y==label)[0]
+
+            indicies = torch.where(y==label,true_y,false_y)
+            indicies = torch.nonzero(indicies)
             count = len(indicies)
             i = label
 
             if count > 0:
                 self.count_vector[i] += count
-                feature_mean = torch.mean(x[indicies], dim=0)
+                feature_mean = torch.mean(x[indicies].detach(), dim=0)
                 self.mean_vector[i] =  (self.count_vector[i]/(self.count_vector[i]+1)) * self.mean_vector[i] \
                 + (1/(self.count_vector[i]+1)) *  feature_mean
     
     def forward(self, x, y=None):
+
+        # if torch.cuda.is_available():
+        #     self.mean_vector = self.mean_vector.cuda()
+        #     self.count_vector = self.count_vector.cuda()
+
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

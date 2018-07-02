@@ -29,7 +29,8 @@ parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--debug', '-d', action ='store_true', help ='enable pdb')
 args = parser.parse_args()
-filename = 'Clothing1M_deep_rest50_noise_dataset_with_alignment_imagenet_pretrained_sgd'
+# filename = 'Clothing1M_deep_rest50_noise_dataset_with_alignment_imagenet_pretrained_sgd'
+filename = 'Clothing1M_deep_rest50_clean_dataset_with_alignment_imagenet_pretrained_sgd'
 
 def main():
     if args.debug:
@@ -45,7 +46,9 @@ def main():
     global train_acc
     train_acc = 0
     condenstation_mean = True
-    t_batch_size=60 #limit 100
+    t_batch_size=40 #limit 100
+
+    device = torch.device("cuda" if use_cuda else "cpu")
 
     # pdb.set_trace()
     #prepare data
@@ -69,13 +72,13 @@ def main():
     clothing1m_clean_train = cd.Clothing1M(root, 'clean_train_kv.txt', transform=transform_train)
     clothing1m_noise_train = cd.Clothing1M(root, 'noisy_train_kv.txt', transform=transform_train)
     # clothing1m_clean_train.append(clothing1m_noise_train)
-    # trainset = clothing1m_clean_train
-    trainset = clothing1m_noise_train
+    trainset = clothing1m_clean_train
+    # trainset = clothing1m_noise_train
     # trainset = torch.utils.data.ConcatDataset((clothing1m_clean_train, clothing1m_noise_train))
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=4)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=16)
 
     clothing1m_clean_test = cd.Clothing1M(root, 'clean_test_kv.txt', transform=transform_test)
-    testloader = torch.utils.data.DataLoader(clothing1m_clean_test, batch_size=int(t_batch_size/2), shuffle=False, num_workers=2)
+    testloader = torch.utils.data.DataLoader(clothing1m_clean_test, batch_size=int(t_batch_size), shuffle=False, num_workers=16)
 
 
     # Model
@@ -111,9 +114,12 @@ def main():
         # net = SENet18()
 
     if use_cuda:
-        net = torch.nn.DataParallel(net, device_ids=[0])
-        net.cuda()
-        cudnn.benchmark = True
+        net 			  	    = torch.nn.DataParallel(net,device_ids=[0])
+     #    net.module.mean_vector  = net.module.mean_vector.to(device)
+    	# net.module.count_vector = net.module.count_vector.to(device)
+        cudnn.benchmark  = True
+
+    net.to(device)
 
     criterion = nn.CrossEntropyLoss()
     # criterion = nn.MultiLabelMarginLoss()
@@ -128,6 +134,7 @@ def main():
     model['criterion'] = criterion
     model['optimizer'] = optimizer
     model['scheduler'] = scheduler
+    model['device']	   = device
 
     for epoch in range(start_epoch, end_epoch):
 
