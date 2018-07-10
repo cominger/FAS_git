@@ -118,8 +118,8 @@ class ResNet(nn.Module):
         self.register_buffer('mean_vector', torch.zeros(num_classes, self.inplanes))
         self.register_buffer('count_vector', torch.ones(num_classes))
         
-        # self.mean_vector = torch.zeros(num_classes, self.inplanes)
-        # self.count_vector = torch.ones(num_classes)
+        #self.mean_vector = torch.zeros(num_classes, self.inplanes)
+        #self.count_vector = torch.ones(num_classes)
 
         # if torch.cuda.is_available():
         #     self.mean_vector = self.mean_vector.cuda()
@@ -154,8 +154,8 @@ class ResNet(nn.Module):
 
     def condenstation_mean(self, flag=False):
         if flag:
-            self.mean_vector = torch.zeros_like(self.mean_vector)
-        self.count_vector = torch.ones_like(self.count_vector)
+            self.mean_vector.zero_()
+        self.count_vector.fill_(1)
         #self.label = []
 
     def update_buffer(self, x, y):
@@ -163,25 +163,18 @@ class ResNet(nn.Module):
         false_y = torch.zeros_like(y)
         true_y = torch.ones_like(y)
         for label in self.label:
-            # print label
-            # indicies = np.where(np_y==label)[0]
 
             indicies = torch.where(y==label,true_y,false_y)
             indicies = torch.nonzero(indicies)
-            count = len(indicies)
+            count = indicies.size(0)
             i = label
 
             if count > 0:
                 self.count_vector[i] += count
-                feature_mean = torch.mean(x[indicies].detach(), dim=0)
-                self.mean_vector[i] =  (self.count_vector[i]/(self.count_vector[i]+1)) * self.mean_vector[i] \
-                + (1/(self.count_vector[i]+1)) *  feature_mean
+                feature_mean = torch.mean(x[indicies], dim=0)
+                self.mean_vector[i] =  (self.count_vector[i]/(self.count_vector[i]+1)) * self.mean_vector[i] + (1/(self.count_vector[i]+1)) *  feature_mean
     
     def forward(self, x, y=None):
-
-        # if torch.cuda.is_available():
-        #     self.mean_vector = self.mean_vector.cuda()
-        #     self.count_vector = self.count_vector.cuda()
 
         x = self.conv1(x)
         x = self.bn1(x)
@@ -198,7 +191,7 @@ class ResNet(nn.Module):
 
         out = x
         if y is not None:
-            self.update_buffer(out, y)
+            self.update_buffer(out.detach(), y.detach())
 
         mean_tensor = self.mean_vector  # (num_classes, 512)
 

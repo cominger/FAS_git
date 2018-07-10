@@ -28,6 +28,7 @@ parser = argparse.ArgumentParser(description='PyTorch Clothing1M Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--debug', '-d', action ='store_true', help ='enable pdb')
+parser.add_argument('--batch_size', '-bs', default=40, help='batch_size')
 args = parser.parse_args()
 # filename = 'Clothing1M_deep_rest50_noise_dataset_with_alignment_imagenet_pretrained_sgd'
 filename = 'Clothing1M_deep_rest50_clean_dataset_with_alignment_imagenet_pretrained_sgd'
@@ -41,12 +42,7 @@ def main():
     start_epoch = 0  # start from epoch 0 or last checkpoint epoch
     end_epoch = 300
     lr_step = [100, 150, 200, 250]
-    global best_acc  # best test accuracy
-    best_acc = 0
-    global train_acc
-    train_acc = 0
-    condenstation_mean = True
-    t_batch_size=40 #limit 100
+    t_batch_size = args.batch_size
 
     device = torch.device("cuda" if use_cuda else "cpu")
 
@@ -78,7 +74,8 @@ def main():
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=16)
 
     clothing1m_clean_test = cd.Clothing1M(root, 'clean_test_kv.txt', transform=transform_test)
-    testloader = torch.utils.data.DataLoader(clothing1m_clean_test, batch_size=int(t_batch_size), shuffle=False, num_workers=16)
+    testset = clothing1m_clean_test
+    testloader = torch.utils.data.DataLoader(testset, batch_size=int(t_batch_size), shuffle=False, num_workers=16)
 
 
     # Model
@@ -114,12 +111,12 @@ def main():
         # net = SENet18()
 
     if use_cuda:
-        net 			  	    = torch.nn.DataParallel(net,device_ids=[0])
+        net = torch.nn.DataParallel(net,device_ids=[0,1])
      #    net.module.mean_vector  = net.module.mean_vector.to(device)
     	# net.module.count_vector = net.module.count_vector.to(device)
         cudnn.benchmark  = True
 
-    net.to(device)
+    net = net.to(device)
 
     criterion = nn.CrossEntropyLoss()
     # criterion = nn.MultiLabelMarginLoss()
@@ -134,19 +131,17 @@ def main():
     model['criterion'] = criterion
     model['optimizer'] = optimizer
     model['scheduler'] = scheduler
-    model['device']	   = device
+    model['device']    = device
 
     for epoch in range(start_epoch, end_epoch):
 
         data_set['trainset']    = trainset
         data_set['trainloader'] = trainloader
-        data_set['testset']     = clothing1m_clean_test
+        data_set['testset']     = testset
         data_set['testloader']  = testloader
         data_set['filename']    = filename
-        data_set['t_batch_size']= t_batch_size
-        # test(epoch)
-        # run_clothing(data_set,model, epoch)
-        run(data_set,model, epoch)
+        
+	run(data_set,model, epoch)
 
 
 if __name__ == '__main__':
