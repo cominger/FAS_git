@@ -63,7 +63,7 @@ else:
     _, term_width = os.popen('stty size', 'r').read().split()
     term_width = int(term_width)
 
-TOTAL_BAR_LENGTH = 65.
+TOTAL_BAR_LENGTH = 45.
 last_time = time.time()
 begin_time = last_time
 def progress_bar(current, total, msg=None):
@@ -146,6 +146,7 @@ global best_acc  # best test accuracy
 best_acc = 0
 global train_acc
 train_acc = 0
+global model
 condenstation_mean = True
 
 # Training
@@ -155,34 +156,29 @@ def train(data, model, epoch):
     net       = model['net']
     optimizer = model['optimizer']
     criterion = model['criterion']
+    device    = model['device']
 
     trainloader = data['trainloader']
 
     if condenstation_mean:
-        net.condenstation_mean()
+        net.module.condenstation_mean()
         print("apply mean condenstation")
 
     print('\nEpoch: %d' % epoch)
-    net.train()
     train_loss = 0
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
-        optimizer.zero_grad()
-        inputs, targets = Variable(inputs), Variable(targets)
-        outputs = net(inputs, targets)
+        inputs, targets = inputs.to(device), targets.to(device)
 
-        targets_cpu = targets.data.cpu()
-        targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-        targets = Variable(targets_cpu).cuda()#non margin
+        optimizer.zero_grad()
+        outputs = net(inputs, targets)
 
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()        
 
-        train_loss += loss.data[0]
+        train_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)#cross
         total += targets.size(0)
         correct += predicted.eq(targets.data).cpu().sum()
@@ -191,6 +187,7 @@ def train(data, model, epoch):
             % (train_loss/(batch_idx+1), 100.*float(correct)/float(total), correct, total))
     train_acc = 100.*float(correct)/float(total)
 
+    print("training_done")
 
 def test(data, model, epoch):
     global best_acc
@@ -198,31 +195,22 @@ def test(data, model, epoch):
     net       = model['net']
     optimizer = model['optimizer']
     criterion = model['criterion']
+    device    = model['device']
 
     testloader = data['testloader']
     filename   = data['filename']
 
-    net.eval()
     test_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, targets) in enumerate(testloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(testloader):
+            inputs, targets = inputs.to(device), targets.to(device)
 
-        # inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-        with torch.no_grad():
-            inputs, targets = Variable(inputs), Variable(targets)
             outputs = net(inputs)
-
-
-            targets_cpu = targets.data.cpu()
-            targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-            targets = Variable(targets_cpu).cuda()
-
             loss = criterion(outputs, targets)
 
-            test_loss += loss.data[0]
+            test_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
             total += targets.size(0)
             correct += predicted.eq(targets.data).cpu().sum()
@@ -235,9 +223,9 @@ def test(data, model, epoch):
     if acc > best_acc:
         print('Saving..')
         state = {
-            'net': net.modules if use_cuda else net,
-            'mean_vector' : net.mean_vector,
-            'label_list' : net.label,
+            'net': net.state_dict() if use_cuda else net,
+            'mean_vector' : net.module.mean_vector,
+            'label_list' : net.module.label,
             'acc': acc,
             'epoch': epoch,
         }
@@ -253,17 +241,6 @@ def test(data, model, epoch):
         File.write('Train Accuracy: %.3f %% \n' % (train_acc))
         File.write('Test Accuracy: %.3f %% \n' % (best_acc))
         File.close()
-##    else:
-##        print('Saving..')
-##        if not os.path.isdir('progress'):
-##            os.mkdir('progress')
-##        filedir = './progress/'
-##        acc_file = filedir + filename+'_score.txt'
-##        File = open(acc_file,"w")
-##        File.write('Epoch: %d \n' % (epoch))
-##        File.write('Train Accuracy: %.3f %% \n' % (train_acc))
-##        File.write('Test Accuracy: %.3f %% \n' % (acc))
-##        File.close()
 
 def mean_alignment(data, model, epoch):
     global best_acc
@@ -271,159 +248,37 @@ def mean_alignment(data, model, epoch):
     net       = model['net']
     optimizer = model['optimizer']
     criterion = model['criterion']
+    device    = model['device']
 
     testloader = data['trainloader']
     filename   = data['filename']
-
-    net.eval()
     
     if condenstation_mean:
-        net.condenstation_mean()
+        net.module.condenstation_mean(flag=True)
         print("apply mean condenstation")
 
-    for batch_idx, (inputs, targets) in enumerate(testloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
-        # inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-        with torch.no_grad():
-            inputs, targets = Variable(inputs), Variable(targets)
-            outputs = net.get_feature(inputs)
-
-            targets_cpu = targets.data.cpu()
-            targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-
-            np_y = targets_cpu.numpy()
-
-            for label in np.unique(np_y):
-
-                indicies = np.where(np_y==label)
-                count = len(indicies)
-
-                i = net.label.index(label)
-                if count > 0:
-                    net.count_vector[i] += count
-                    feature_mean = torch.mean(outputs[indicies], dim=0).data.cpu()
-                    net.mean_vector[i] =  (net.count_vector[i]/(net.count_vector[i]+1)) * net.mean_vector[i] \
-                    + (1/(net.count_vector[i]+1)) *  feature_mean
-            
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(testloader):
+            inputs, targets = inputs.to(device), targets.to(device)
+                # outputs = net.get_feature(inputs)
+            outputs = net(inputs, targets)            
             progress_bar(batch_idx, len(testloader))
 
 
-def run(data,model,epoch, alignment = True):
+def run(data, model, epoch, alignment = False):
+    
     train(data,model,epoch)
     torch.cuda.empty_cache()
     if alignment:
+
         print("Non-alignment")
         test(data,model,epoch)
-        torch.cuda.empty_cache()
+        #torch.cuda.empty_cache()
+
         mean_alignment(data,model,epoch)
+        #torch.cuda.empty_cache()
+
     model['scheduler'].step()
     test(data,model,epoch)
-
-def run_clothing(data,model,epoch):
-    trainset  = data['trainset']
-    class_num = len(set(trainset.labels))
-
-    # #-----Learning Phase------
-    # data['trainloader'] = torch.utils.data.DataLoader(trainset, batch_size=data['t_batch_size'], shuffle=True, num_workers=0)
-    # train(data,model, epoch)
-    # model['scheduler'].step()
-    # test(data,model, epoch)
-
-    #-----Cleaning Phase------
-    if epoch % 1 ==0:
-        print("Cleaning Time")
-        sample_count = []
-        for i in range(class_num):
-            sample_count.append(trainset.get_labeled_image_number(i))
-        sample_count=np.array(sample_count)
-
-        data['trainloader'] = torch.utils.data.DataLoader(trainset, batch_size=data['t_batch_size'], shuffle=False, num_workers=0)
-        noisy_sort(data,model,epoch,sample_count)
-        trainset  = data['trainset']
-
-        for mini_epoch in range(5):
-
-            #-----Re Learning Phase------
-            print("Big epoch: ", epoch)
-            data['trainloader'] = torch.utils.data.DataLoader(trainset, batch_size=data['t_batch_size'], shuffle=True, num_workers=0)
-            train(data,model, mini_epoch)
-            model['scheduler'].step()
-            test(data,model, mini_epoch)
-
-        #load Best_model
-        pre_trained_path = './checkpoint/Clothing1M_ncm_deep_rest50_.t7'
-        checkpoint                = torch.load(pre_trained_path)
-        pre_trained_model         = checkpoint['net'].__self__
-        model['net'].load_state_dict(pre_trained_model.state_dict())
-        model['net'].mean_vector  = checkpoint['mean_vector']
-        model['net'].label        = checkpoint['label_list']
-        model['net'].count_vector = torch.ones(len(checkpoint['label_list']),1)
-
-
-def noisy_sort(data,model,epoch,sample_count):
-    global best_acc
-    if best_acc == 0:
-        best_acc = 50.0
-    remove_percent = (100 - best_acc)/100
-    sample_count = sample_count * remove_percent
-
-    use_cuda  = model['use_cuda'] 
-    net       = model['net']
-    optimizer = model['optimizer']
-    criterion = model['criterion']
-
-    trainloader = data['trainloader']
-    filename   = data['filename']
-    trainset = data['trainset']
-
-    net.eval()
-    test_loss = 0
-    correct = 0
-    total = 0
-    remove_list_score=[]
-    remove_list_index=[]
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
-        # print(batch_idx)
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-        outputs = net(inputs)
-
-        targets_cpu = targets.data.cpu()
-        targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-        targets = Variable(targets_cpu).cuda()
-
-        progress_bar(batch_idx, len(trainloader))
-        # total += targets.size(0)
-
-        mean_Dist = outputs.index_select(1,targets).diag().data.cpu().numpy()
-        del targets
-        targets_cpu  = targets_cpu.numpy()
-        batch_idx_in = np.arange(inputs.shape[0])+(batch_idx*data['t_batch_size'])
-
-        for cur_label in range(len(set(trainset.labels))):
-            cur_index     = (targets_cpu == cur_label)
-            cur_Dist      = mean_Dist[cur_index]
-            cur_batch_idx =  batch_idx_in[cur_index]
-            if batch_idx == 0:
-                remove_list_score.append(cur_Dist)
-                remove_list_index.append(cur_batch_idx)
-            else:
-                remove_list_score[cur_label]=np.hstack((remove_list_score[cur_label],cur_Dist))
-                remove_list_index[cur_label]=np.hstack((remove_list_index[cur_label],cur_batch_idx))
-
-        for cur_label in range(len(set(trainset.labels))):
-            sort_list = np.argsort(remove_list_score[cur_label])
-            remove_list_score[cur_label] = remove_list_score[cur_label][sort_list]
-            remove_list_index[cur_label] = remove_list_index[cur_label][sort_list]
-            remove_list_score[cur_label] = remove_list_score[cur_label][:int(sample_count[cur_label])]
-            remove_list_index[cur_label] = remove_list_index[cur_label][:int(sample_count[cur_label])]
-
-    del remove_list_score
-    remove_list_index = [y for x in remove_list_index for y in x]
-    remove_list_index.sort(reverse=True)
-    for  cur_label in remove_list_index:
-        trainset.remove_from_list(cur_label)
-
+    torch.cuda.empty_cache()
 

@@ -28,8 +28,10 @@ parser = argparse.ArgumentParser(description='PyTorch Clothing1M Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--debug', '-d', action ='store_true', help ='enable pdb')
+parser.add_argument('--batch_size', '-bs', default=40, help='batch_size')
+parser.add_argument('--thread_num', '-tn', default=8, help='number of thread')
 args = parser.parse_args()
-filename = 'Clothing1M_deep_rest50_noise_dataset_with_alignment_imagenet_pretrained_sgd'
+filename = 'Clothing1M_deep_rest50_clean_dataset_sgd'
 
 def main():
     if args.debug:
@@ -40,12 +42,10 @@ def main():
     start_epoch = 0  # start from epoch 0 or last checkpoint epoch
     end_epoch = 300
     lr_step = [100, 150, 200, 250]
-    global best_acc  # best test accuracy
-    best_acc = 0
-    global train_acc
-    train_acc = 0
-    condenstation_mean = True
-    t_batch_size=80 #limit 100
+    t_batch_size = int(args.batch_size)
+    thread_workers = int(args.thread_num)
+
+    device = torch.device("cuda" if use_cuda else "cpu")
 
     # pdb.set_trace()
     #prepare data
@@ -69,13 +69,14 @@ def main():
     clothing1m_clean_train = cd.Clothing1M(root, 'clean_train_kv.txt', transform=transform_train)
     clothing1m_noise_train = cd.Clothing1M(root, 'noisy_train_kv.txt', transform=transform_train)
     # clothing1m_clean_train.append(clothing1m_noise_train)
-    # trainset = clothing1m_clean_train
-    trainset = clothing1m_noise_train
+    trainset = clothing1m_clean_train
+    # trainset = clothing1m_noise_train
     # trainset = torch.utils.data.ConcatDataset((clothing1m_clean_train, clothing1m_noise_train))
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=4)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=thread_workers)
 
     clothing1m_clean_test = cd.Clothing1M(root, 'clean_test_kv.txt', transform=transform_test)
-    testloader = torch.utils.data.DataLoader(clothing1m_clean_test, batch_size=int(t_batch_size/2), shuffle=False, num_workers=2)
+    testset = clothing1m_clean_test
+    testloader = torch.utils.data.DataLoader(testset, batch_size=t_batch_size, shuffle=False, num_workers=thread_workers)
 
 
     # Model
@@ -97,7 +98,7 @@ def main():
     else:
         print('==> Building model..')
         # net = VGG('VGG19')
-        net = resnet50_dnc_imagenet(pretrained= True) #NMC
+        net = resnet50_dnc_imagenet(pretrained= False, num_classes=trainset.class_num()) #NMC
         # net = resnet50(pretrained= True)
         # net = ResNet18_DNC()
         # net = PreActResNet18()
@@ -111,35 +112,31 @@ def main():
         # net = SENet18()
 
     if use_cuda:
-        net.cuda()
-        #net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
-        cudnn.benchmark = True
+        net = torch.nn.DataParallel(net,device_ids=[0,1,2])
+        cudnn.benchmark  = True
+
+    net = net.to(device)
 
     criterion = nn.CrossEntropyLoss()
-    # criterion = nn.MultiLabelMarginLoss()
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-    # optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=5e-4)
+    optimizer = optim.SGD(filter(lambda p: p.requires_grad, net.parameters()), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     scheduler = MultiStepLR(optimizer, milestones=lr_step, gamma=0.1)
     
-
-    # pdb.set_trace()
     model['use_cuda']  = use_cuda
     model['net']       = net
     model['criterion'] = criterion
     model['optimizer'] = optimizer
     model['scheduler'] = scheduler
+    model['device']    = device
 
     for epoch in range(start_epoch, end_epoch):
 
         data_set['trainset']    = trainset
         data_set['trainloader'] = trainloader
-        data_set['testset']     = clothing1m_clean_test
+        data_set['testset']     = testset
         data_set['testloader']  = testloader
         data_set['filename']    = filename
-        data_set['t_batch_size']= t_batch_size
-        # test(epoch)
-        # run_clothing(data_set,model, epoch)
-        run(data_set,model, epoch)
+        
+	run(data_set, model, epoch)
 
 
 if __name__ == '__main__':

@@ -115,9 +115,17 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         
-        self.mean_vector = torch.zeros(1, self.inplanes)
-        self.count_vector = torch.ones(1, 1)
-        self.label = []
+        #self.register_buffer('mean_vector', torch.zeros(num_classes, self.inplanes))
+        #self.register_buffer('count_vector', torch.ones(num_classes))
+
+        self.mean_vector = nn.Parameter(torch.zeros(num_classes, self.inplanes), requires_grad=False)
+        self.count_vector = nn.Parameter(torch.ones(num_classes),requires_grad=False)
+
+        # if torch.cuda.is_available():
+        #     self.mean_vector = self.mean_vector.cuda()
+        #     self.count_vector = self.count_vector.cuda()
+        self.label = range(num_classes)
+        self.label_name =[]
         
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -144,33 +152,33 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def condenstation_mean(self):
-        self.mean_vector = torch.zeros_like(self.mean_vector)
-        self.count_vector = torch.ones_like(self.count_vector)
+    def condenstation_mean(self, flag=False):
+        if flag:
+            self.mean_vector.zero_()
+        self.count_vector.fill_(1)
         #self.label = []
 
     def update_buffer(self, x, y):
-        np_y = y.data.cpu().numpy()
-
-        for label in np.unique(np_y):
-
-            if label not in self.label:
-                self.label.append(label)
-                if len(self.label) != 1:
-                    self.mean_vector = torch.cat((self.mean_vector, torch.zeros(1, self.inplanes)))
-                    self.count_vector = torch.cat((self.count_vector, torch.ones(1, 1)))
-
-            indicies = np.where(np_y==label)
-            count = len(indicies)
-
-            i = self.label.index(label)
-            if count > 0:
-                self.count_vector[i] += count
-                feature_mean = torch.mean(x[indicies], dim=0).data.cpu()
-                self.mean_vector[i] =  (self.count_vector[i]/(self.count_vector[i]+1)) * self.mean_vector[i] \
-                + (1/(self.count_vector[i]+1)) *  feature_mean
+        # np_y = y.data.cpu().numpy()
+	y_onehot = torch.zeros_like(y).float()
+	y_onehot.unsqueeze_(1)
+	y_onehot = y_onehot * torch.zeros_like(self.count_vector)
+	y_onehot.zero_()
+	y_onehot.scatter_(1,y.unsqueeze(1),1)
+	
+	feature_count = torch.sum(y_onehot, 0)
+	feature = torch.mm(torch.transpose(y_onehot,0,1) , x.detach())
+	
+	self.mean_vector.data = self.mean_vector.data* \
+             (self.count_vector.data / \
+             (self.count_vector.data + feature_count) \
+             ).view(-1,1) \
+             + feature * \
+             (1 / (self.count_vector.data + feature_count)).view(-1,1)
+	self.count_vector.data = self.count_vector.data + feature_count
     
     def forward(self, x, y=None):
+
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -188,14 +196,10 @@ class ResNet(nn.Module):
         if y is not None:
             self.update_buffer(out, y)
 
-
-        if torch.cuda.is_available():
-            mean_tensor = self.mean_vector.cuda()
-        else:
-            mean_tensor = self.mean_vector  # (num_classes, 512)
+        mean_tensor = self.mean_vector.data  # (num_classes, 512)
 
         out = out.unsqueeze(1) # (batch, 1, 512)
-        x_t_sub_mean = out - Variable(mean_tensor) # (batch, num_classes, 512)
+        x_t_sub_mean = out - mean_tensor # (batch, num_classes, 512)
         x_t_sub_mean_squ = x_t_sub_mean.pow(2) # (batch, num_classes, 512)
         d_w_xy = -0.5 * torch.sum(x_t_sub_mean_squ, dim=2) # (batch, num_classes)
 
