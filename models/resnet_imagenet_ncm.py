@@ -117,9 +117,9 @@ class ResNet(nn.Module):
         
         self.register_buffer('mean_vector', torch.zeros(num_classes, self.inplanes))
         self.register_buffer('count_vector', torch.ones(num_classes))
-        
-        #self.mean_vector = torch.zeros(num_classes, self.inplanes)
-        #self.count_vector = torch.ones(num_classes)
+
+#        self.mean_vector = nn.Parameter(torch.zeros(num_classes, self.inplanes), requires_grad=False)
+#        self.count_vector = nn.Parameter(torch.ones(num_classes),requires_grad=False)
 
         # if torch.cuda.is_available():
         #     self.mean_vector = self.mean_vector.cuda()
@@ -160,19 +160,17 @@ class ResNet(nn.Module):
 
     def update_buffer(self, x, y):
         # np_y = y.data.cpu().numpy()
-        false_y = torch.zeros_like(y)
-        true_y = torch.ones_like(y)
-        for label in self.label:
-
-            indicies = torch.where(y==label,true_y,false_y)
-            indicies = torch.nonzero(indicies)
-            count = indicies.size(0)
-            i = label
-
-            if count > 0:
-                self.count_vector[i] += count
-                feature_mean = torch.mean(x[indicies], dim=0)
-                self.mean_vector[i] =  (self.count_vector[i]/(self.count_vector[i]+1)) * self.mean_vector[i] + (1/(self.count_vector[i]+1)) *  feature_mean
+	y_onehot = torch.zeros_like(y).float()
+	y_onehot.unsqueeze_(1)
+	y_onehot = y_onehot * torch.zeros_like(self.count_vector)
+	y_onehot.zero_()
+	y_onehot.scatter_(1,y.unsqueeze(1),1)
+	
+	feature_count = torch.sum(y_onehot, 0)
+	feature = torch.mm(torch.transpose(y_onehot,0,1) , x)
+	
+	self.mean_vector *= self.mean_vector*(self.count_vector / (self.count_vector + 1)).view(-1,1) + feature * (1 / (feature_count+1)).view(-1,1)
+	self.count_vector += feature_count
     
     def forward(self, x, y=None):
 

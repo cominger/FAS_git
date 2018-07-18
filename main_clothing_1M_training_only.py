@@ -29,9 +29,10 @@ parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--debug', '-d', action ='store_true', help ='enable pdb')
 parser.add_argument('--batch_size', '-bs', default=40, help='batch_size')
+parser.add_argument('--thread_num', '-tn', default=8, help='number of thread')
 args = parser.parse_args()
 # filename = 'Clothing1M_deep_rest50_noise_dataset_with_alignment_imagenet_pretrained_sgd'
-filename = 'Clothing1M_deep_rest50_clean_dataset_with_alignment_imagenet_pretrained_sgd'
+filename = 'Clothing1M_deep_rest50_clean_dataset_imagenet_pretrained_sgd'
 
 def main():
     if args.debug:
@@ -42,7 +43,8 @@ def main():
     start_epoch = 0  # start from epoch 0 or last checkpoint epoch
     end_epoch = 300
     lr_step = [100, 150, 200, 250]
-    t_batch_size = args.batch_size
+    t_batch_size = int(args.batch_size)
+    thread_workers = int(args.thread_num)
 
     device = torch.device("cuda" if use_cuda else "cpu")
 
@@ -71,11 +73,11 @@ def main():
     trainset = clothing1m_clean_train
     # trainset = clothing1m_noise_train
     # trainset = torch.utils.data.ConcatDataset((clothing1m_clean_train, clothing1m_noise_train))
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=16)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=thread_workers)
 
     clothing1m_clean_test = cd.Clothing1M(root, 'clean_test_kv.txt', transform=transform_test)
     testset = clothing1m_clean_test
-    testloader = torch.utils.data.DataLoader(testset, batch_size=int(t_batch_size), shuffle=False, num_workers=16)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=t_batch_size, shuffle=False, num_workers=thread_workers)
 
 
     # Model
@@ -97,7 +99,7 @@ def main():
     else:
         print('==> Building model..')
         # net = VGG('VGG19')
-        net = resnet50_dnc_imagenet(pretrained= True, num_classes=trainset.class_num()) #NMC
+        net = resnet50_dnc_imagenet(pretrained= False, num_classes=trainset.class_num()) #NMC
         # net = resnet50(pretrained= True)
         # net = ResNet18_DNC()
         # net = PreActResNet18()
@@ -112,20 +114,14 @@ def main():
 
     if use_cuda:
         net = torch.nn.DataParallel(net,device_ids=[0,1])
-     #    net.module.mean_vector  = net.module.mean_vector.to(device)
-    	# net.module.count_vector = net.module.count_vector.to(device)
         cudnn.benchmark  = True
 
     net = net.to(device)
 
     criterion = nn.CrossEntropyLoss()
-    # criterion = nn.MultiLabelMarginLoss()
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-    # optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=5e-4)
+    optimizer = optim.SGD(filter(lambda p: p.requires_grad, net.parameters()), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     scheduler = MultiStepLR(optimizer, milestones=lr_step, gamma=0.1)
     
-
-    # pdb.set_trace()
     model['use_cuda']  = use_cuda
     model['net']       = net
     model['criterion'] = criterion
@@ -141,7 +137,7 @@ def main():
         data_set['testloader']  = testloader
         data_set['filename']    = filename
         
-	run(data_set,model, epoch)
+	run(data_set, model, epoch)
 
 
 if __name__ == '__main__':
