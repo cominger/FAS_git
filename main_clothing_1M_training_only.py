@@ -31,8 +31,7 @@ parser.add_argument('--debug', '-d', action ='store_true', help ='enable pdb')
 parser.add_argument('--batch_size', '-bs', default=40, help='batch_size')
 parser.add_argument('--thread_num', '-tn', default=8, help='number of thread')
 args = parser.parse_args()
-# filename = 'Clothing1M_deep_rest50_noise_dataset_with_alignment_imagenet_pretrained_sgd'
-filename = 'Clothing1M_deep_rest50_clean_dataset_imagenet_pretrained_sgd'
+filename = 'Clothing1M_deep_rest50_clean_dataset_sgd'
 
 def main():
     if args.debug:
@@ -113,7 +112,7 @@ def main():
         # net = SENet18()
 
     if use_cuda:
-        net = torch.nn.DataParallel(net,device_ids=[0,1])
+        net = torch.nn.DataParallel(net,device_ids=[0,1,2])
         cudnn.benchmark  = True
 
     net = net.to(device)

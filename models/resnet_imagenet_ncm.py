@@ -115,11 +115,11 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         
-        self.register_buffer('mean_vector', torch.zeros(num_classes, self.inplanes))
-        self.register_buffer('count_vector', torch.ones(num_classes))
+        #self.register_buffer('mean_vector', torch.zeros(num_classes, self.inplanes))
+        #self.register_buffer('count_vector', torch.ones(num_classes))
 
-#        self.mean_vector = nn.Parameter(torch.zeros(num_classes, self.inplanes), requires_grad=False)
-#        self.count_vector = nn.Parameter(torch.ones(num_classes),requires_grad=False)
+        self.mean_vector = nn.Parameter(torch.zeros(num_classes, self.inplanes), requires_grad=False)
+        self.count_vector = nn.Parameter(torch.ones(num_classes),requires_grad=False)
 
         # if torch.cuda.is_available():
         #     self.mean_vector = self.mean_vector.cuda()
@@ -169,8 +169,13 @@ class ResNet(nn.Module):
 	feature_count = torch.sum(y_onehot, 0)
 	feature = torch.mm(torch.transpose(y_onehot,0,1) , x.detach())
 	
-	self.mean_vector = self.mean_vector*(self.count_vector / (self.count_vector + 1)).view(-1,1) + feature * (1 / (feature_count+1)).view(-1,1)
-	self.count_vector = self.count_vector + feature_count
+	self.mean_vector.data = self.mean_vector.data* \
+             (self.count_vector.data / \
+             (self.count_vector.data + feature_count) \
+             ).view(-1,1) \
+             + feature * \
+             (1 / (self.count_vector.data + feature_count)).view(-1,1)
+	self.count_vector.data = self.count_vector.data + feature_count
     
     def forward(self, x, y=None):
 
@@ -191,7 +196,7 @@ class ResNet(nn.Module):
         if y is not None:
             self.update_buffer(out, y)
 
-        mean_tensor = self.mean_vector  # (num_classes, 512)
+        mean_tensor = self.mean_vector.data  # (num_classes, 512)
 
         out = out.unsqueeze(1) # (batch, 1, 512)
         x_t_sub_mean = out - mean_tensor # (batch, num_classes, 512)

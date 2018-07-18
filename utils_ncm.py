@@ -268,7 +268,7 @@ def mean_alignment(data, model, epoch):
 def run(data, model, epoch, alignment = False):
     
     train(data,model,epoch)
-    #torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
     if alignment:
 
         print("Non-alignment")
@@ -280,5 +280,5 @@ def run(data, model, epoch, alignment = False):
 
     model['scheduler'].step()
     test(data,model,epoch)
-    #torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
 
