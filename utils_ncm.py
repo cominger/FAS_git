@@ -146,6 +146,7 @@ global best_acc  # best test accuracy
 best_acc = 0
 global train_acc
 train_acc = 0
+global model
 condenstation_mean = True
 
 # Training
@@ -186,6 +187,7 @@ def train(data, model, epoch):
             % (train_loss/(batch_idx+1), 100.*float(correct)/float(total), correct, total))
     train_acc = 100.*float(correct)/float(total)
 
+    print("training_done")
 
 def test(data, model, epoch):
     global best_acc

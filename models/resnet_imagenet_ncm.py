@@ -167,10 +167,10 @@ class ResNet(nn.Module):
 	y_onehot.scatter_(1,y.unsqueeze(1),1)
 	
 	feature_count = torch.sum(y_onehot, 0)
-	feature = torch.mm(torch.transpose(y_onehot,0,1) , x)
+	feature = torch.mm(torch.transpose(y_onehot,0,1) , x.detach())
 	
-	self.mean_vector *= self.mean_vector*(self.count_vector / (self.count_vector + 1)).view(-1,1) + feature * (1 / (feature_count+1)).view(-1,1)
-	self.count_vector += feature_count
+	self.mean_vector = self.mean_vector*(self.count_vector / (self.count_vector + 1)).view(-1,1) + feature * (1 / (feature_count+1)).view(-1,1)
+	self.count_vector = self.count_vector + feature_count
     
     def forward(self, x, y=None):
 
@@ -189,7 +189,7 @@ class ResNet(nn.Module):
 
         out = x
         if y is not None:
-            self.update_buffer(out.detach(), y.detach())
+            self.update_buffer(out, y)
 
         mean_tensor = self.mean_vector  # (num_classes, 512)
 
