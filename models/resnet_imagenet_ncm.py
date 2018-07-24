@@ -155,7 +155,9 @@ class ResNet(nn.Module):
     def condenstation_mean(self, flag=False):
         if flag:
             self.mean_vector.zero_()
-        self.count_vector.fill_(1)
+	    self.count_vector.zero_()
+	else:
+	    self.count_vector.fill_(1)
         #self.label = []
 
     def update_buffer(self, x, y):
@@ -176,6 +178,7 @@ class ResNet(nn.Module):
              + feature * \
              (1 / (self.count_vector.data + feature_count)).view(-1,1)
 	self.count_vector.data = self.count_vector.data + feature_count
+        #print("\tIn Model: Count Vector", self.count_vector.data)
     
     def forward(self, x, y=None):
 
@@ -192,6 +195,7 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
 
+	feature = x.detach()
         out = x
         if y is not None:
             self.update_buffer(out, y)
@@ -203,24 +207,7 @@ class ResNet(nn.Module):
         x_t_sub_mean_squ = x_t_sub_mean.pow(2) # (batch, num_classes, 512)
         d_w_xy = -0.5 * torch.sum(x_t_sub_mean_squ, dim=2) # (batch, num_classes)
 
-        return d_w_xy
-
-    def get_feature(self, x):
-        
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-
-        return x
+        return d_w_xy, feature
 
 
 def resnet18_dnc_imagenet(pretrained=False, **kwargs):

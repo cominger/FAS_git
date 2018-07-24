@@ -1,4 +1,7 @@
+"""
 '''Train Clothing1M with PyTorch.'''
+Disclaimer: Multi-gpu suffer non-sycronized mean parameter updates
+"""
 from __future__ import print_function
 
 import torch
@@ -31,7 +34,8 @@ parser.add_argument('--debug', '-d', action ='store_true', help ='enable pdb')
 parser.add_argument('--batch_size', '-bs', default=40, help='batch_size')
 parser.add_argument('--thread_num', '-tn', default=8, help='number of thread')
 args = parser.parse_args()
-filename = 'Clothing1M_deep_rest50_clean_dataset_sgd'
+filename = 'Clothing1M_deep_rest50_pretrained_imagenet_noisy_dataset_true_U_sgd_1'
+#filename = 'debugging'
 
 def main():
     if args.debug:
@@ -40,7 +44,7 @@ def main():
     data_set={}
     use_cuda = torch.cuda.is_available()
     start_epoch = 0  # start from epoch 0 or last checkpoint epoch
-    end_epoch = 300
+    end_epoch = 160
     lr_step = [100, 150, 200, 250]
     t_batch_size = int(args.batch_size)
     thread_workers = int(args.thread_num)
@@ -69,8 +73,8 @@ def main():
     clothing1m_clean_train = cd.Clothing1M(root, 'clean_train_kv.txt', transform=transform_train)
     clothing1m_noise_train = cd.Clothing1M(root, 'noisy_train_kv.txt', transform=transform_train)
     # clothing1m_clean_train.append(clothing1m_noise_train)
-    trainset = clothing1m_clean_train
-    # trainset = clothing1m_noise_train
+    # trainset = clothing1m_clean_train
+    trainset = clothing1m_noise_train
     # trainset = torch.utils.data.ConcatDataset((clothing1m_clean_train, clothing1m_noise_train))
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=t_batch_size, shuffle=True, num_workers=thread_workers)
 
@@ -85,20 +89,20 @@ def main():
         # Load checkpoint.
         print('==> Resuming from checkpoint..')
         assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-        net = resnet50_dnc_imagenet(pretrained= True)
+        net = resnet50_dnc_imagenet()
 
-        pre_trained_path = './checkpoint/Clothing1M_ncm_deep_rest50_dirty_.t7'
+        pre_trained_path = './checkpoint/Clothing1M_.t7'
         checkpoint = torch.load(pre_trained_path)
         pre_trained_model = checkpoint['net'].__self__
         net.load_state_dict(pre_trained_model.state_dict())
-        net.mean_vector  = checkpoint['mean_vector']
-        net.label        = checkpoint['label_list']
-        net.count_vector = torch.ones(len(checkpoint['label_list']),1)
+        #net.mean_vector  = checkpoint['mean_vector']
+        #net.label        = checkpoint['label_list']
+        #net.count_vector = torch.ones(len(checkpoint['label_list']),1)
 
     else:
         print('==> Building model..')
         # net = VGG('VGG19')
-        net = resnet50_dnc_imagenet(pretrained= False, num_classes=trainset.class_num()) #NMC
+        net = resnet50_dnc_imagenet(pretrained= True, num_classes=trainset.class_num()) #NMC
         # net = resnet50(pretrained= True)
         # net = ResNet18_DNC()
         # net = PreActResNet18()

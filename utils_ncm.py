@@ -172,7 +172,7 @@ def train(data, model, epoch):
         inputs, targets = inputs.to(device), targets.to(device)
 
         optimizer.zero_grad()
-        outputs = net(inputs, targets)
+        outputs, _ = net(inputs, targets)
 
         loss = criterion(outputs, targets)
         loss.backward()
@@ -207,7 +207,7 @@ def test(data, model, epoch):
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
 
-            outputs = net(inputs)
+            outputs, _ = net(inputs)
             loss = criterion(outputs, targets)
 
             test_loss += loss.item()
@@ -242,7 +242,7 @@ def test(data, model, epoch):
         File.write('Test Accuracy: %.3f %% \n' % (best_acc))
         File.close()
 
-def mean_alignment(data, model, epoch):
+def true_mean_alignment(data, model, epoch):
     global best_acc
     use_cuda  = model['use_cuda'] 
     net       = model['net']
@@ -250,33 +250,51 @@ def mean_alignment(data, model, epoch):
     criterion = model['criterion']
     device    = model['device']
 
-    testloader = data['trainloader']
+    trainloader = data['trainloader']
     filename   = data['filename']
     
     if condenstation_mean:
         net.module.condenstation_mean(flag=True)
         print("apply mean condenstation")
 
+    #mean_vector = torch.zeros_like(net.module.mean_vector.data)
+    #count_vector = torch.zeros_like(net.module.count_vector.data) 
+
     with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
+        for batch_idx, (inputs, targets) in enumerate(trainloader):
             inputs, targets = inputs.to(device), targets.to(device)
-                # outputs = net.get_feature(inputs)
-            outputs = net(inputs, targets)            
-            progress_bar(batch_idx, len(testloader))
+            _, outputs = net(inputs)
 
+	    y_onehot = torch.zeros_like(targets).float()
+            y_onehot.unsqueeze_(1)
+            y_onehot = y_onehot * torch.zeros_like(net.module.count_vector)
+            y_onehot.zero_()
+            y_onehot.scatter_(1,targets.unsqueeze(1),1)
 
-def run(data, model, epoch, alignment = False):
+            net.module.count_vector.data += torch.sum(y_onehot, 0)
+            feature = torch.mm(torch.transpose(y_onehot,0,1) , outputs)
+	    net.module.mean_vector.data += feature
+
+            #outputs = net(inputs, targets)            
+            progress_bar(batch_idx, len(trainloader))
     
-    train(data,model,epoch)
+    net.module.mean_vector.data = torch.div( \
+				  net.module.mean_vector.data, \
+			   	  net.module.count_vector.data.unsqueeze(1))
+
+
+def run(data, model, epoch, alignment = True):
+    
+    train(data, model, epoch)
     torch.cuda.empty_cache()
     if alignment:
 
         print("Non-alignment")
         test(data,model,epoch)
-        #torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
-        mean_alignment(data,model,epoch)
-        #torch.cuda.empty_cache()
+        true_mean_alignment(data, model, epoch)
+        torch.cuda.empty_cache()
 
     model['scheduler'].step()
     test(data,model,epoch)
