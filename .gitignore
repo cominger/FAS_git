@@ -8,3 +8,7 @@ models/__init__.py
 models/__init__.pyc
 models/resnet_imagenet_ncm.pyc
 utils_ncm.pyc
+*.pyc
+*.gz
+_cache_
+progress_plot/
