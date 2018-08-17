@@ -169,6 +169,8 @@ def train(data, model, epoch):
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
+       # targets, indices = torch.sort(targets)
+       # inputs = inputs[indices]
         inputs, targets = inputs.to(device), targets.to(device)
 
         optimizer.zero_grad()

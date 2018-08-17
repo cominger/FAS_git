@@ -154,6 +154,7 @@ def train(data, model, epoch):
     net       = model['net']
     optimizer = model['optimizer']
     criterion = model['criterion']
+    device    = model['device']
 
     trainloader = data['trainloader']
 
@@ -167,28 +168,22 @@ def train(data, model, epoch):
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
+        inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        inputs, targets = Variable(inputs), Variable(targets)
         outputs = net(inputs, targets)
-
-        targets_cpu = targets.data.cpu()
-        targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-        targets = Variable(targets_cpu).cuda()#non margin
 
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()        
 
-        train_loss += loss.data[0]
+        train_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)#cross
         total += targets.size(0)
         correct += predicted.eq(targets.data).cpu().sum()
 
         progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-    train_acc = 100.*correct/total
+            % (train_loss/(batch_idx+1), 100.*float(correct)/float(total), correct, total))
+    train_acc = 100.*float(correct)/float(total)
 
 
 def test(data, model, epoch):
@@ -197,42 +192,35 @@ def test(data, model, epoch):
     net       = model['net']
     optimizer = model['optimizer']
     criterion = model['criterion']
+    device    = model['device']
 
     testloader = data['testloader']
     filename   = data['filename']
 
-    net.eval()
     test_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, targets) in enumerate(testloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-        outputs = net(inputs)
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(testloader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            outputs = net(inputs)
 
+            loss = criterion(outputs, targets)
 
-        targets_cpu = targets.data.cpu()
-        targets_cpu = targets_cpu.map_(targets_cpu, lambda x,y: net.label.index(x))
-        targets = Variable(targets_cpu).cuda()
+            test_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total += targets.size(0)
+            correct += predicted.eq(targets.data).cpu().sum()
 
-        loss = criterion(outputs, targets)
-
-        test_loss += loss.data[0]
-        _, predicted = torch.max(outputs.data, 1)
-        total += targets.size(0)
-        correct += predicted.eq(targets.data).cpu().sum()
-
-        progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                % (test_loss/(batch_idx+1), 100.*float(correct)/float(total), correct, total))
 
     # Save checkpoint.
-    acc = 100.*correct/total
+    acc = 100.*float(correct)/float(total)
     if acc > best_acc:
         print('Saving..')
         state = {
-            'net': net.modules if use_cuda else net,
-            'label_list' : net.label,
+            'net': net.state_dict() if use_cuda else net,
             'acc': acc,
             'epoch': epoch,
         }
@@ -248,6 +236,7 @@ def test(data, model, epoch):
         File.write('Train Accuracy: %.3f %% \n' % (train_acc))
         File.write('Test Accuracy: %.3f %% \n' % (best_acc))
         File.close()
+'''
     else:
         print('Saving..')
         if not os.path.isdir('progress'):
@@ -259,7 +248,7 @@ def test(data, model, epoch):
         File.write('Train Accuracy: %.3f %% \n' % (train_acc))
         File.write('Test Accuracy: %.3f %% \n' % (acc))
         File.close()
-
+'''
 def run(data, model, epoch):
     train(data,model, epoch)
     model['scheduler'].step()
